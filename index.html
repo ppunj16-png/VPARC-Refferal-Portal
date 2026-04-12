@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#00b4c8">
+<link rel="manifest" href="#" id="pwa-manifest">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VPARC Portal">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>VPARC Referral Portal</title>
@@ -569,6 +572,7 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
     <button class="topbar-action" id="admin-notif-btn" onclick="showAdminNotifications()" style="display:none">
       🔔<span class="notif-badge" id="admin-notif-count" style="display:none">0</span>
     </button>
+    <button class="topbar-action" onclick="sharePortalWhatsApp()" title="Share portal with doctor" style="background:rgba(37,211,102,0.15);color:#25D366">🟢</button>
     <button class="topbar-action" onclick="adminLogout()" style="background:rgba(232,53,74,0.1);color:var(--red)">↩</button>
   </div>
   <div class="page-content">
@@ -1224,6 +1228,9 @@ function renderOverviewTab(mode) {
         <button class="upload-btn" onclick="openModal('modal-add-session')">📅 Log New Session</button>
         <button class="upload-btn" onclick="openModal('modal-add-exercise')">🏋️ Add Rehab Exercise</button>
         <button class="upload-btn" onclick="openSettings()">⚙️ Doctor Portal Settings</button>
+        <button onclick="deletePatient('${p.id}','${p.name}')" style="width:100%;padding:14px;border:1.5px dashed rgba(232,53,74,0.4);border-radius:12px;background:rgba(232,53,74,0.05);color:var(--red);font-family:Inter,sans-serif;font-size:13px;cursor:pointer;margin-top:4px">🗑 Delete Patient & All Data</button>
+        <button class="upload-btn" onclick="openModal('modal-add-exercise')">🏋️ Add Rehab Exercise</button>
+        <button class="upload-btn" onclick="openSettings()">⚙️ Doctor Portal Settings</button>
       </div>
     </div>` : `
     <div class="section-card" style="margin-top:14px">
@@ -1401,7 +1408,14 @@ async function compressVideo(file, onProgress) {
       }
 
       const stream = canvas.captureStream(24);
-      const rec = new MediaRecorder(stream, { mimeType: 'video/webm', videoBitsPerSecond: 1500000 });
+      try {
+        const actx = new (window.AudioContext||window.webkitAudioContext)();
+        const src = actx.createMediaElementSource(video);
+        const dst = actx.createMediaStreamDestination();
+        src.connect(dst); src.connect(actx.destination);
+        dst.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+      } catch(e) {}
+      const rec = new MediaRecorder(stream, { mimeType: 'video/webm', videoBitsPerSecond: 1500000, audioBitsPerSecond: 128000 });
       const chunks = [];
 
       rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
@@ -1695,6 +1709,33 @@ async function addComment(mode, author) {
 // ════════════════════════════════════════════════════════
 function openAddPatient() { openModal('modal-add-patient'); }
 
+
+async function deletePatient(patientId, patientName) {
+  if (!confirm(`Delete ${patientName} and ALL their data?\n\nThis will permanently delete:\n• All sessions\n• All media (photos/videos)\n• Rehab plan\n• Comments\n• Notifications\n\nThis cannot be undone.`)) return;
+
+  showToast('Deleting patient data...');
+
+  try {
+    // Delete all subcollections
+    const collections = ['sessions','media','rehabPlans','rehabMeta','comments','notifications'];
+    for (const col of collections) {
+      const snap = await db.collection(col).where('patientId','==',patientId).get();
+      const batch = db.batch();
+      snap.docs.forEach(d => batch.delete(d.ref));
+      if (snap.docs.length > 0) await batch.commit();
+    }
+    // Delete rehabMeta doc directly
+    await db.collection('rehabMeta').doc(patientId).delete().catch(()=>{});
+    // Delete patient doc
+    await db.collection('patients').doc(patientId).delete();
+
+    showToast(`${patientName} deleted`);
+    showScreen('screen-admin-dashboard');
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
 async function pickContact() {
   if (!('contacts' in navigator && 'ContactsManager' in window)) {
     showToast('Contact picker not supported on this browser. Type number manually.');
@@ -1838,6 +1879,35 @@ async function sendNotification(title, body, icon) {
   });
 }
 
+
+async function sharePortalWhatsApp() {
+  const snap = await db.collection('settings').doc('doctorPortal').get();
+  const settings = snap.exists ? snap.data() : {};
+  const doctorName = settings.doctorName || 'Doctor';
+  const clinicName = settings.clinicName || '';
+  const url = window.location.href.split('?')[0];
+  const msg = `🏥 *VPARC Referral Portal*
+
+Dear ${doctorName},
+
+Your patient progress portal is now live. You can view all referred patients, their rehab plans, progress charts, session logs and uploaded media.
+
+🔗 *Portal Link:*
+${url}
+
+📱 *How to access:*
+1. Open the link above
+2. Tap "Doctor Portal"
+3. Enter your 4-digit PIN
+
+💡 *Tip:* Tap the menu → "Add to Home Screen" to install as an app on your phone.
+
+_VPARC — Varanasi Physiotherapy & Rehabilitation Centre_
+_Dr. Prashant Punj MPT (Ortho)_`;
+
+  window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+}
+
 async function showAdminNotifications() {
   returnScreen = 'screen-admin-dashboard';
   document.getElementById('notif-back-btn').onclick = () => showScreen(returnScreen);
@@ -1963,19 +2033,87 @@ function timeAgo(d) {
 document.getElementById('sess-date').value = new Date().toISOString().split('T')[0];
 
 // PWA service worker
+
+// ── Remote version check / force refresh ───────────────────────
+async function checkForUpdates() {
+  try {
+    const snap = await db.collection('settings').doc('appConfig').get();
+    if (!snap.exists) return;
+    const config = snap.data();
+    const localVersion = localStorage.getItem('vparc_version');
+    if (config.forceReload && config.version !== localVersion) {
+      localStorage.setItem('vparc_version', config.version);
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const reg of regs) await reg.unregister();
+        caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+      }
+      showToast('App updated — reloading...');
+      setTimeout(() => window.location.reload(true), 1500);
+    }
+  } catch(e) {}
+}
+// Check for updates on load
+setTimeout(checkForUpdates, 3000);
+
+// ── PWA Manifest (inline) ──────────────────────────────────────
+const pwaManifest = {
+  name: 'VPARC Referral Portal',
+  short_name: 'VPARC Portal',
+  description: 'Patient referral & progress tracker',
+  start_url: '/',
+  display: 'standalone',
+  background_color: '#0d1f22',
+  theme_color: '#00b4c8',
+  orientation: 'portrait',
+  icons: [
+    { src: 'https://ui-avatars.com/api/?name=V&size=192&background=00b4c8&color=fff&bold=true&rounded=true', sizes: '192x192', type: 'image/png' },
+    { src: 'https://ui-avatars.com/api/?name=V&size=512&background=00b4c8&color=fff&bold=true&rounded=true', sizes: '512x512', type: 'image/png' }
+  ]
+};
+const manifestBlob = new Blob([JSON.stringify(pwaManifest)], {type:'application/json'});
+const manifestUrl = URL.createObjectURL(manifestBlob);
+document.getElementById('pwa-manifest').href = manifestUrl;
+
+// ── Service Worker ──────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
   const swContent = `
-    self.addEventListener('install', e => self.skipWaiting());
+    const CACHE = 'vparc-v1';
+    self.addEventListener('install', e => {
+      self.skipWaiting();
+    });
     self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+    self.addEventListener('fetch', e => {
+      if (e.request.method !== 'GET') return;
+      if (e.request.url.includes('firestore') || e.request.url.includes('googleapis') || e.request.url.includes('cloudinary')) return;
+      e.respondWith(
+        caches.open(CACHE).then(cache =>
+          cache.match(e.request).then(cached => {
+            const fresh = fetch(e.request).then(res => { cache.put(e.request, res.clone()); return res; });
+            return cached || fresh;
+          })
+        )
+      );
+    });
     self.addEventListener('push', e => {
       const data = e.data ? e.data.json() : {};
       self.registration.showNotification(data.title || 'VPARC Update', {
-        body: data.body || '', icon: '/icon-192.png', badge: '/icon-192.png'
+        body: data.body || '',
+        icon: 'https://ui-avatars.com/api/?name=V&size=192&background=00b4c8&color=fff&bold=true',
+        badge: 'https://ui-avatars.com/api/?name=V&size=96&background=00b4c8&color=fff&bold=true',
+        vibrate: [200, 100, 200]
       });
     });
   `;
   const blob = new Blob([swContent], { type: 'application/javascript' });
-  navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
+  const swUrl = URL.createObjectURL(blob);
+  navigator.serviceWorker.register(swUrl).then(reg => {
+    console.log('SW registered');
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }).catch(e => console.log('SW error:', e));
 }
 
 // ════════════════════════════════════════════════════════
