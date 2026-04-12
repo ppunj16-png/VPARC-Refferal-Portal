@@ -787,6 +787,58 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
   </div>
 </div>
 
+<!-- Edit Patient Modal -->
+<div class="modal-overlay" id="modal-edit-patient">
+  <div class="modal" style="max-height:88vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <h3>✏️ Edit Patient Info</h3>
+    <div class="field"><label>Full Name</label><input type="text" id="edit-name" placeholder="Patient full name"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field"><label>Age</label><input type="number" id="edit-age" placeholder="35"></div>
+      <div class="field">
+        <label>Gender</label>
+        <select id="edit-gender" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);font-family:'Inter',sans-serif;font-size:13px;background:var(--surface);outline:none">
+          <option value="Male">Male</option>
+          <option value="Female">Female</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Phone</label>
+      <div style="display:flex;gap:8px">
+        <input type="tel" id="edit-phone" placeholder="9XXXXXXXX" style="flex:1">
+        <button type="button" onclick="pickContactEdit()" style="padding:0 14px;background:rgba(0,180,200,0.1);border:1.5px solid var(--border);border-radius:10px;color:var(--teal-dark);cursor:pointer;font-size:18px;flex-shrink:0">📒</button>
+      </div>
+    </div>
+    <div class="field"><label>Diagnosis / Condition</label><input type="text" id="edit-diagnosis" placeholder="e.g. Rotator cuff tear..."></div>
+    <div class="field">
+      <label>Case Type</label>
+      <div class="tag-selector" id="edit-case-tags">
+        <div class="tag-pick" data-val="Shoulder" onclick="toggleTag(this)">Shoulder</div>
+        <div class="tag-pick" data-val="Knee" onclick="toggleTag(this)">Knee</div>
+        <div class="tag-pick" data-val="Back" onclick="toggleTag(this)">Back</div>
+        <div class="tag-pick" data-val="Hip" onclick="toggleTag(this)">Hip</div>
+        <div class="tag-pick" data-val="Ankle" onclick="toggleTag(this)">Ankle</div>
+        <div class="tag-pick" data-val="Neck" onclick="toggleTag(this)">Neck</div>
+        <div class="tag-pick" data-val="Post-op" onclick="toggleTag(this)">Post-op</div>
+        <div class="tag-pick" data-val="Elbow" onclick="toggleTag(this)">Elbow</div>
+        <div class="tag-pick" data-val="Wrist" onclick="toggleTag(this)">Wrist</div>
+        <div class="tag-pick" data-val="Neuro" onclick="toggleTag(this)">Neuro</div>
+      </div>
+    </div>
+    <div class="field"><label>Referred By</label>
+      <select id="edit-referred-select" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);font-family:'Inter',sans-serif;font-size:13px;background:var(--surface);outline:none;margin-bottom:8px" onchange="onEditReferredChange(this)">
+        <option value="">-- Select Doctor --</option>
+      </select>
+      <input type="text" id="edit-referred" placeholder="Or type name manually">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-outline" onclick="closeModal('modal-edit-patient')">Cancel</button>
+      <button class="btn-primary" onclick="saveEditPatient()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- Add Session Modal -->
 <div class="modal-overlay" id="modal-add-session">
   <div class="modal">
@@ -1374,7 +1426,10 @@ function renderOverviewTab(mode) {
 
   const html = `
     <div class="section-card">
-      <h4>Patient Info</h4>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <h4 style="margin-bottom:0">Patient Info</h4>
+        ${isAdmin ? `<button onclick="openEditPatient()" style="background:rgba(0,180,200,0.1);border:none;border-radius:8px;padding:6px 12px;font-size:12px;color:var(--teal-dark);cursor:pointer;font-weight:600">✏️ Edit</button>` : ''}
+      </div>
       <div class="info-row"><span class="info-label">Full Name</span><span class="info-value">${p.name || '–'}</span></div>
       <div class="info-row"><span class="info-label">Age / Gender</span><span class="info-value">${p.age ? p.age : '–'} y · ${p.gender || '–'}</span></div>
       <div class="info-row"><span class="info-label">Phone</span><span class="info-value">${p.phone || '–'}</span></div>
@@ -1937,6 +1992,104 @@ async function pickContact() {
     }
   } catch(e) { showToast('Could not open contacts. Type number manually.'); }
 }
+
+
+// ── Edit Patient ────────────────────────────────────────────────
+async function openEditPatient() {
+  const p = currentPatientData;
+  // Populate fields
+  document.getElementById('edit-name').value      = p.name      || '';
+  document.getElementById('edit-age').value       = p.age       || '';
+  document.getElementById('edit-gender').value    = p.gender    || 'Male';
+  document.getElementById('edit-phone').value     = p.phone     || '';
+  document.getElementById('edit-diagnosis').value = p.diagnosis || '';
+  document.getElementById('edit-referred').value  = p.referredBy|| '';
+
+  // Set case tags
+  document.querySelectorAll('#edit-case-tags .tag-pick').forEach(el => {
+    el.classList.toggle('selected', (p.caseTags || []).includes(el.dataset.val));
+  });
+
+  // Populate doctor dropdown
+  await populateEditReferredDropdown(p.referredBy);
+
+  openModal('modal-edit-patient');
+}
+
+async function populateEditReferredDropdown(currentVal) {
+  const sel = document.getElementById('edit-referred-select');
+  const snap = await db.collection('doctors').get();
+  sel.innerHTML = '<option value="">-- Select Doctor --</option>';
+  let found = false;
+  snap.docs.forEach(d => {
+    const data = d.data();
+    const opt = document.createElement('option');
+    opt.value = data.doctorName;
+    opt.dataset.docId = d.id;
+    opt.textContent = data.doctorName + (data.clinicName ? ' — ' + data.clinicName : '');
+    if (data.doctorName === currentVal) { opt.selected = true; found = true; }
+    sel.appendChild(opt);
+  });
+  const manualOpt = document.createElement('option');
+  manualOpt.value = '__manual__'; manualOpt.textContent = '+ Type manually';
+  sel.appendChild(manualOpt);
+  // Show/hide manual input
+  document.getElementById('edit-referred').style.display = found ? 'none' : 'block';
+}
+
+function onEditReferredChange(sel) {
+  const input = document.getElementById('edit-referred');
+  if (sel.value === '__manual__') {
+    input.style.display = 'block'; input.focus(); sel.value = '';
+  } else if (sel.value) {
+    input.value = sel.value; input.style.display = 'none';
+  } else {
+    input.value = ''; input.style.display = 'block';
+  }
+}
+
+async function pickContactEdit() {
+  if (!('contacts' in navigator)) { showToast('Type number manually'); return; }
+  try {
+    const contacts = await navigator.contacts.select(['name','tel'], { multiple: false });
+    if (contacts.length > 0) {
+      const c = contacts[0];
+      if (c.tel?.[0]) document.getElementById('edit-phone').value = c.tel[0].replace(/\s|-/g,'');
+    }
+  } catch(e) {}
+}
+
+async function saveEditPatient() {
+  const name      = document.getElementById('edit-name').value.trim();
+  const age       = document.getElementById('edit-age').value;
+  const gender    = document.getElementById('edit-gender').value;
+  const phone     = document.getElementById('edit-phone').value.trim();
+  const diagnosis = document.getElementById('edit-diagnosis').value.trim();
+  const referred  = document.getElementById('edit-referred').value.trim() ||
+                    document.getElementById('edit-referred-select').value;
+  const caseTags  = [...document.querySelectorAll('#edit-case-tags .tag-pick.selected')].map(el => el.dataset.val);
+  const refId     = document.getElementById('edit-referred-select')?.selectedOptions[0]?.dataset?.docId || '';
+
+  if (!name) { showToast('Name required'); return; }
+
+  await db.collection('patients').doc(currentPatientId).update({
+    name, age: age ? parseInt(age) : null, gender, phone, diagnosis,
+    referredBy: referred, referredById: refId, caseTags
+  });
+
+  // Update local state
+  currentPatientData = { ...currentPatientData, name, age: age ? parseInt(age) : null,
+    gender, phone, diagnosis, referredBy: referred, caseTags };
+
+  closeModal('modal-edit-patient');
+  showToast('Patient updated ✓');
+  renderOverviewTab('admin');
+
+  // Update topbar
+  document.getElementById('admin-patient-name-bar').textContent = name;
+  document.getElementById('admin-patient-sub-bar').textContent = caseTags.join(', ') || 'Patient';
+}
+
 
 async function addPatient() {
   const name      = document.getElementById('new-name').value.trim();
