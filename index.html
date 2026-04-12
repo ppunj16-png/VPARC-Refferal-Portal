@@ -575,6 +575,7 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
       <h2>VPARC Admin</h2>
       <p>Patient Management</p>
     </div>
+    <button class="topbar-action" onclick="showScreen('screen-active-users');loadActiveUsers()" title="Active Users" style="background:rgba(99,102,241,0.15);color:#6366f1">📱</button>
     <button class="topbar-action" id="admin-notif-btn" onclick="showAdminNotifications()" style="display:none">
       🔔<span class="notif-badge" id="admin-notif-count" style="display:none">0</span>
     </button>
@@ -995,6 +996,41 @@ let romChart           = null;
 let returnScreen       = 'screen-admin-dashboard';
 let isAdminMode        = false;
 
+
+// ── Session / Device Tracking ───────────────────────────────────
+function getDeviceInfo() {
+  const ua = navigator.userAgent;
+  const isIOS        = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  const isAndroid    = /Android/.test(ua);
+  const isDesktop    = !isIOS && !isAndroid;
+  const isPWA        = window.matchMedia('(display-mode: standalone)').matches ||
+                       window.navigator.standalone === true;
+  const browser      = /Chrome/.test(ua) ? 'Chrome' :
+                       /Firefox/.test(ua) ? 'Firefox' :
+                       /Safari/.test(ua) ? 'Safari' : 'Browser';
+  const os           = isIOS ? 'iPhone/iPad' : isAndroid ? 'Android' : 'Desktop';
+  return { os, browser, isPWA, ua: ua.slice(0, 80) };
+}
+
+async function logDeviceSession(role, identifier) {
+  try {
+    const info = getDeviceInfo();
+    const sessionData = {
+      role,                          // 'admin' or 'doctor'
+      identifier,                    // email or doctor name
+      os: info.os,
+      browser: info.browser,
+      isPWA: info.isPWA,
+      lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+      userAgent: info.ua
+    };
+    // Use a stable doc ID per device+role so it updates not duplicates
+    const deviceKey = role + '_' + identifier.replace(/[^a-z0-9]/gi,'_').toLowerCase()
+                      + '_' + info.os.replace(/[^a-z]/gi,'');
+    await db.collection('deviceSessions').doc(deviceKey).set(sessionData, { merge: true });
+  } catch(e) {}
+}
+
 // ════════════════════════════════════════════════════════
 //  ROUTER
 // ════════════════════════════════════════════════════════
@@ -1042,6 +1078,7 @@ async function adminLogin() {
   try {
     await auth.signInWithEmailAndPassword(email, pass);
     isAdminMode = true;
+    logDeviceSession('admin', email);
     loadAdminDashboard();
     showScreen('screen-admin-dashboard');
   } catch(e) {
@@ -1101,6 +1138,7 @@ async function checkPin() {
     if (matched) {
       currentDoctorId   = matched.id;
       currentDoctorData = matched;
+      logDeviceSession('doctor', matched.doctorName || matched.id);
       resetPin();
       loadDoctorDashboard();
       showScreen('screen-doctor-dashboard');
@@ -1951,6 +1989,69 @@ async function deletePatient(patientId, patientName) {
   } catch(e) {
     showToast('Error: ' + e.message);
   }
+}
+
+
+// ── Active Users Panel ──────────────────────────────────────────
+async function loadActiveUsers() {
+  const el = document.getElementById('active-users-content');
+  if (!el) return;
+  el.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
+
+  const snap = await db.collection('deviceSessions').get();
+  const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .sort((a,b) => (b.lastSeen?.seconds||0) - (a.lastSeen?.seconds||0));
+
+  if (!sessions.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📱</div><p>No sessions recorded yet.<br>Logins will appear here.</p></div>';
+    return;
+  }
+
+  const admins  = sessions.filter(s => s.role === 'admin');
+  const doctors = sessions.filter(s => s.role === 'doctor');
+
+  const renderSession = (s) => {
+    const osIcon   = s.os?.includes('iPhone') ? '🍎' : s.os?.includes('Android') ? '🤖' : '💻';
+    const pwaLabel = s.isPWA 
+      ? '<span style="background:rgba(16,185,129,0.12);color:#059669;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:600">APP</span>'
+      : '<span style="background:rgba(99,102,241,0.1);color:#6366f1;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:600">BROWSER</span>';
+    const lastSeen = s.lastSeen ? timeAgo(s.lastSeen.toDate()) : '–';
+    return `
+      <div style="background:white;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:var(--shadow)">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:28px">${osIcon}</span>
+          <div style="flex:1">
+            <div style="font-family:Inter,sans-serif;font-weight:700;font-size:14px;color:var(--ink)">${s.identifier || s.id}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">${s.os || '–'} · ${s.browser || '–'}</div>
+            <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+              ${pwaLabel}
+              <span style="font-size:11px;color:var(--teal-dark)">Last seen: ${lastSeen}</span>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  el.innerHTML = `
+    <div style="margin-bottom:20px">
+      <div style="font-family:Inter,sans-serif;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">
+        ADMIN (${admins.length})
+      </div>
+      ${admins.length ? admins.map(renderSession).join('') : '<div style="color:var(--muted);font-size:13px;padding:10px">No admin sessions yet</div>'}
+    </div>
+    <div>
+      <div style="font-family:Inter,sans-serif;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">
+        DOCTORS (${doctors.length})
+      </div>
+      ${doctors.length ? doctors.map(renderSession).join('') : '<div style="color:var(--muted);font-size:13px;padding:10px">No doctor sessions yet</div>'}
+    </div>
+    <div style="margin-top:20px;padding:14px;background:var(--surface);border-radius:12px;border:1px solid var(--border)">
+      <div style="font-size:11px;color:var(--muted);line-height:1.7">
+        <b style="color:var(--ink)">APP</b> = Installed as home screen app (PWA)<br>
+        <b style="color:var(--ink)">BROWSER</b> = Using in web browser<br>
+        <b style="color:var(--ink)">Last seen</b> = Last login time
+      </div>
+    </div>`;
 }
 
 // ── Space monitoring ─────────────────────────────────────────────
@@ -3197,6 +3298,23 @@ const PROTOCOL_TEMPLATES = [
   </div>
 </div>
 
+
+<!-- ════════════════════════════════
+     SCREEN: ACTIVE USERS (Admin only)
+════════════════════════════════ -->
+<div class="screen" id="screen-active-users">
+  <div class="topbar">
+    <button class="topbar-back" onclick="showScreen('screen-admin-dashboard')">←</button>
+    <div class="topbar-title">
+      <h2>Active Users</h2>
+      <p>Device & Login Tracking</p>
+    </div>
+    <button class="topbar-action" onclick="loadActiveUsers()" style="font-size:13px">↻</button>
+  </div>
+  <div class="page-content" id="active-users-content">
+    <div class="loading-wrap"><div class="spinner"></div></div>
+  </div>
+</div>
 </body>
 </html>
 <script>
