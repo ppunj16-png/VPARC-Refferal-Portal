@@ -1358,8 +1358,15 @@ async function handleFileUpload() {
           let data;
           try { data = JSON.parse(xhr.responseText); } catch(e) { reject(new Error('Bad response')); return; }
           if (data.secure_url) {
+            // Convert WebM to MP4 via Cloudinary URL transformation (universal playback)
+            let mediaUrl = data.secure_url;
+            if (isVideo && mediaUrl.includes('cloudinary.com')) {
+              // Insert f_mp4,vc_h264 transformation for cross-platform compatibility
+              mediaUrl = mediaUrl.replace('/upload/', '/upload/f_mp4,vc_h264,q_auto/');
+              mediaUrl = mediaUrl.replace(/\.webm$/, '.mp4');
+            }
             await db.collection('media').add({
-              patientId: currentPatientId, url: data.secure_url,
+              patientId: currentPatientId, url: mediaUrl,
               publicId: data.public_id || '', type, caption,
               uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
