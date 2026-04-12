@@ -596,7 +596,7 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
       <input type="text" placeholder="Search patient name..." id="admin-search" oninput="filterPatients()">
     </div>
     <div class="filter-chips" id="admin-filters">
-      <div class="chip active" data-filter="all" onclick="selectFilter(this)">All</div>
+      <div class="chip active" data-filter="all" onclick="selectFilter(this)">All Cases</div>
       <div class="chip" data-filter="Shoulder" onclick="selectFilter(this)">Shoulder</div>
       <div class="chip" data-filter="Knee" onclick="selectFilter(this)">Knee</div>
       <div class="chip" data-filter="Back" onclick="selectFilter(this)">Back</div>
@@ -604,6 +604,9 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
       <div class="chip" data-filter="Ankle" onclick="selectFilter(this)">Ankle</div>
       <div class="chip" data-filter="Neck" onclick="selectFilter(this)">Neck</div>
       <div class="chip" data-filter="Post-op" onclick="selectFilter(this)">Post-op</div>
+    </div>
+    <div class="filter-chips" id="admin-doctor-filters" style="margin-top:-8px">
+      <div class="chip active" data-doctor="all" onclick="selectDoctorFilter(this)">All Doctors</div>
     </div>
     <div id="admin-patient-list">
       <div class="loading-wrap"><div class="spinner"></div></div>
@@ -766,8 +769,11 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
       </div>
     </div>
     <div class="field">
-      <label>Referred By (Doctor Name)</label>
-      <input type="text" id="new-referred" placeholder="e.g. Dr. Vinay Pandey" value="Dr. Vinay Pandey">
+      <label>Referred By (Doctor)</label>
+      <select id="new-referred-select" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);font-family:'Inter',sans-serif;font-size:13px;background:var(--surface);outline:none;margin-bottom:8px" onchange="onReferredChange(this)">
+        <option value="">-- Select Doctor --</option>
+      </select>
+      <input type="text" id="new-referred" placeholder="Or type name if not listed">
     </div>
     <div class="field">
       <label>Initial Pain Score (0–10)</label>
@@ -1098,13 +1104,86 @@ function updateAdminStats() {
   document.getElementById('stat-flagged').textContent = flagged.length;
 }
 
+
+// ── Doctor filter for admin dashboard ──────────────────────────
+let activeDoctorFilter = 'all';
+
+function selectDoctorFilter(el) {
+  document.querySelectorAll('#admin-doctor-filters .chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  activeDoctorFilter = el.dataset.doctor;
+  renderPatientList();
+}
+
+function populateDoctorFilterChips() {
+  const bar = document.getElementById('admin-doctor-filters');
+  // Get unique referring doctors from patients
+  const doctors = [...new Set(allPatients.map(p => p.referredBy).filter(Boolean))];
+  const existing = bar.innerHTML;
+  // Only rebuild if changed
+  const allChip = '<div class="chip active" data-doctor="all" onclick="selectDoctorFilter(this)">All Doctors</div>';
+  const doctorChips = doctors.map(d =>
+    `<div class="chip" data-doctor="${d}" onclick="selectDoctorFilter(this)">${d}</div>`
+  ).join('');
+  bar.innerHTML = allChip + doctorChips;
+  // Re-apply active state
+  bar.querySelectorAll('.chip').forEach(c => {
+    if (c.dataset.doctor === activeDoctorFilter) c.classList.add('active');
+  });
+}
+
+// ── Referred By dropdown population ────────────────────────────
+async function populateReferredDropdown() {
+  const sel = document.getElementById('new-referred-select');
+  if (!sel) return;
+  const snap = await db.collection('doctors').get();
+  sel.innerHTML = '<option value="">-- Select Doctor --</option>';
+  snap.docs.forEach(d => {
+    const data = d.data();
+    const opt = document.createElement('option');
+    opt.value = data.doctorName;
+    opt.dataset.docId = d.id;
+    opt.textContent = data.doctorName + (data.clinicName ? ' — ' + data.clinicName : '');
+    sel.appendChild(opt);
+  });
+  // Fallback: if no doctors in DB yet, add from patient list
+  if (snap.empty) {
+    const names = [...new Set(allPatients.map(p => p.referredBy).filter(Boolean))];
+    names.forEach(n => {
+      const opt = document.createElement('option');
+      opt.value = n; opt.textContent = n;
+      sel.appendChild(opt);
+    });
+  }
+  const manualOpt = document.createElement('option');
+  manualOpt.value = '__manual__'; manualOpt.textContent = '+ Type manually';
+  sel.appendChild(manualOpt);
+}
+
+function onReferredChange(sel) {
+  const input = document.getElementById('new-referred');
+  if (sel.value === '__manual__') {
+    input.style.display = 'block';
+    input.focus();
+    sel.value = '';
+  } else if (sel.value) {
+    input.value = sel.value;
+    input.style.display = 'none';
+  } else {
+    input.value = '';
+    input.style.display = 'block';
+  }
+}
+
 function renderPatientList() {
   const q   = document.getElementById('admin-search').value.toLowerCase();
   const list = document.getElementById('admin-patient-list');
+  populateDoctorFilterChips();
   const filtered = allPatients.filter(p => {
     const matchQ = !q || p.name?.toLowerCase().includes(q);
     const matchF = activeFilter === 'all' || (p.caseTags || []).includes(activeFilter);
-    return matchQ && matchF;
+    const matchD = activeDoctorFilter === 'all' || p.referredBy === activeDoctorFilter;
+    return matchQ && matchF && matchD;
   });
   if (!filtered.length) {
     list.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><p>No patients found</p></div>';
@@ -1177,7 +1256,18 @@ async function loadDoctorDashboard() {
 function renderDocPatientList() {
   const q = document.getElementById('doc-search').value.toLowerCase();
   const list = document.getElementById('doc-patient-list');
+
+  // Filter ONLY this doctor's patients — match by doctorName or doctorId
+  const myName = (currentDoctorData?.doctorName || '').toLowerCase().trim();
+  const myId   = currentDoctorId || '';
+
   const filtered = allPatients.filter(p => {
+    const ref = (p.referredBy || '').toLowerCase().trim();
+    const matchDoc = ref === myName ||
+                     ref.includes(myName) ||
+                     myName.includes(ref) ||
+                     p.referredById === myId;
+    if (!matchDoc) return false;
     const matchQ = !q || p.name?.toLowerCase().includes(q) ||
       (p.caseTags || []).some(t => t.toLowerCase().includes(q));
     const matchF = activeDocFilter === 'all' || (p.caseTags || []).includes(activeDocFilter);
@@ -1754,7 +1844,11 @@ async function addComment(mode, author) {
 // ════════════════════════════════════════════════════════
 //  ADD PATIENT
 // ════════════════════════════════════════════════════════
-function openAddPatient() { openModal('modal-add-patient'); }
+function openAddPatient() {
+  populateReferredDropdown();
+  document.getElementById('new-referred').style.display = 'block';
+  openModal('modal-add-patient');
+}
 
 
 async function deletePatient(patientId, patientName) {
@@ -1856,6 +1950,7 @@ async function addPatient() {
   if (!name) { showToast('Please enter patient name'); return; }
   await db.collection('patients').add({
     name, age: age ? parseInt(age) : '', gender, phone, diagnosis, referredBy: referred,
+    referredById: document.getElementById('new-referred-select')?.selectedOptions[0]?.dataset?.docId || '',
     caseTags, initialPain: pain, status: 'green',
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
