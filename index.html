@@ -1080,7 +1080,7 @@ function patientCardHTML(p) {
       <div class="patient-avatar">${initials}</div>
       <div class="patient-info">
         <div class="patient-name">${p.name || 'Unknown'}</div>
-        <div class="patient-meta">${p.age || '–'}y · ${p.gender || ''} · ${p.referredBy || 'Self'}</div>
+        <div class="patient-meta">${p.age ? p.age + 'y' : '–'} · ${p.gender || ''} · ${p.referredBy || 'Self'}</div>
         <div class="patient-tags">${tags}${statusLabel ? `<span class="${statusClass}">${statusLabel}</span>` : ''}</div>
       </div>
       <div class="patient-chevron">›</div>
@@ -1153,7 +1153,7 @@ function renderDocPatientList() {
       <div class="patient-avatar" style="background:linear-gradient(135deg,#10b981,#059669)">${initials}</div>
       <div class="patient-info">
         <div class="patient-name">${p.name || 'Unknown'}</div>
-        <div class="patient-meta">${p.age || '–'}y · ${p.gender || ''} · ${p.diagnosis || ''}</div>
+        <div class="patient-meta">${p.age ? p.age + 'y' : '–'} · ${p.gender || ''} · ${p.diagnosis || ''}</div>
         <div class="patient-tags">${tags}${statusLabel ? `<span class="${statusClass}">${statusLabel}</span>` : ''}</div>
       </div>
       <div class="patient-chevron">›</div>
@@ -1240,7 +1240,7 @@ function renderOverviewTab(mode) {
     <div class="section-card">
       <h4>Patient Info</h4>
       <div class="info-row"><span class="info-label">Full Name</span><span class="info-value">${p.name || '–'}</span></div>
-      <div class="info-row"><span class="info-label">Age / Gender</span><span class="info-value">${p.age || '–'} y · ${p.gender || '–'}</span></div>
+      <div class="info-row"><span class="info-label">Age / Gender</span><span class="info-value">${p.age ? p.age : '–'} y · ${p.gender || '–'}</span></div>
       <div class="info-row"><span class="info-label">Phone</span><span class="info-value">${p.phone || '–'}</span></div>
       <div class="info-row"><span class="info-label">Diagnosis</span><span class="info-value">${p.diagnosis || '–'}</span></div>
       <div class="info-row"><span class="info-label">Case Type</span><span class="info-value">${(p.caseTags||[]).join(', ') || '–'}</span></div>
@@ -1260,8 +1260,8 @@ async function renderMediaTab(mode) {
   const prefix = mode === 'admin' ? '' : 'doc-';
   const el = document.getElementById('tab-' + prefix + 'media');
   el.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
-  const snap = await db.collection('media').where('patientId', '==', currentPatientId).orderBy('uploadedAt','desc').get();
-  const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const snap = await db.collection('media').where('patientId', '==', currentPatientId).get();
+  const items = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.uploadedAt?.seconds||0) - (a.uploadedAt?.seconds||0));
 
   const gridHtml = items.length === 0
     ? `<div class="empty-state"><div class="empty-icon">📷</div><p>${mode === 'admin' ? 'No media uploaded yet.<br>Tap Photo or Video to upload.' : 'No photos or videos uploaded yet.<br>Check back after your next session.'}</p></div>`
@@ -1395,9 +1395,8 @@ async function renderSessionsTab(mode) {
   const el = document.getElementById('tab-sessions');
   el.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
   const snap = await db.collection('sessions')
-    .where('patientId', '==', currentPatientId)
-    .orderBy('date', 'desc').get();
-  const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    .where('patientId', '==', currentPatientId).get();
+  const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.date||'').localeCompare(a.date||''));
 
   const painColor = v => v <= 3 ? '#10b981' : v <= 6 ? '#f59e0b' : '#e8354a';
 
@@ -1429,9 +1428,8 @@ async function renderProgressCharts(mode) {
   const prefix = mode === 'admin' ? '' : 'doc-';
   const el = document.getElementById('tab-' + prefix + 'progress');
   const snap = await db.collection('sessions')
-    .where('patientId', '==', currentPatientId)
-    .orderBy('date','asc').get();
-  const sessions = snap.docs.map(d => d.data());
+    .where('patientId', '==', currentPatientId).get();
+  const sessions = snap.docs.map(d => d.data()).sort((a,b) => (a.date||'').localeCompare(b.date||''));
 
   if (!sessions.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">📈</div><p>Log sessions to see progress charts</p></div>';
@@ -1501,9 +1499,8 @@ async function renderCommentsTab(mode) {
   const prefix = mode === 'admin' ? '' : 'doc-';
   const el = document.getElementById('tab-' + prefix + 'comments');
   const snap = await db.collection('comments')
-    .where('patientId', '==', currentPatientId)
-    .orderBy('createdAt','desc').get();
-  const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    .where('patientId', '==', currentPatientId).get();
+  const comments = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
 
   const authorLabel = mode === 'admin' ? 'Dr. Prashant (VPARC)' : (currentDoctorData?.doctorName || 'Dr. Pandey');
   const commentHtml = comments.length === 0
@@ -1704,7 +1701,7 @@ async function showDoctorNotifications() {
 async function loadNotifPanel(doctorId) {
   const el = document.getElementById('notif-list');
   el.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
-  let query = db.collection('notifications').orderBy('createdAt','desc').limit(50);
+  let query = db.collection('notifications').limit(50);
   if (doctorId) query = query.where('doctorId','==',doctorId);
   const snap = await query.get();
   const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
