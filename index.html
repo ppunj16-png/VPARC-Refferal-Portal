@@ -497,7 +497,7 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
       <div class="icon">🏥</div>
       <div>
         <h3>Admin Login</h3>
-        <p>Dr. Prashant — manage patients & records</p>
+        <p>Prashant Punj — manage patients & records</p>
       </div>
     </div>
     <div class="landing-card doctor" onclick="showScreen('screen-pin')">
@@ -1835,7 +1835,7 @@ async function renderCommentsTab(mode) {
     .sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
 
   const isAdmin = mode === 'admin';
-  const myLabel  = isAdmin ? 'Dr. Prashant (VPARC)' : (currentDoctorData?.doctorName || 'Dr. Pandey');
+  const myLabel  = isAdmin ? 'Prashant Punj (VPARC)' : (currentDoctorData?.doctorName || 'Dr. Pandey');
   const myRole   = isAdmin ? 'admin' : 'doctor';
   const theirRole = isAdmin ? 'doctor' : 'admin';
 
@@ -2316,7 +2316,7 @@ ${url}
 🔔 *For notifications (iPhone):* Must be installed to Home Screen first, requires iOS 16.4+
 
 _VPARC — Varanasi Physiotherapy & Rehabilitation Centre_
-_Dr. Prashant Punj MPT (Ortho)_`;
+_Prashant Punj MPT (Ortho)_`;
 
   window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
 }
@@ -3653,7 +3653,7 @@ async function shareRehabWhatsApp() {
 
   msg += `━━━━━━━━━━━━━━━━━━━━\n`;
   msg += `_Prepared by VPARC — Varanasi Physiotherapy & Rehabilitation Centre_\n`;
-  msg += `_Dr. Prashant Punj MPT (Ortho) | Reg. BPT/4122_`;
+  msg += `_Prashant Punj MPT (Ortho) | Reg. BPT/4122_`;
 
   window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
 }
