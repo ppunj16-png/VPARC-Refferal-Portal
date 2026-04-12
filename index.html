@@ -1782,15 +1782,19 @@ async function checkCloudinarySpace() {
     const res  = await fetch('/.netlify/functions/cloudinary-usage');
     const data = await res.json();
     if (data.storage) {
-      const usedMB  = Math.round(data.storage.usage / 1024 / 1024);
-      const limitMB = Math.round(data.storage.limit  / 1024 / 1024);
-      const pct     = Math.round(usedMB / limitMB * 100);
-      const color   = pct > 80 ? 'var(--red)' : pct > 60 ? '#f59e0b' : 'var(--green)';
+      const usedBytes  = data.storage.usage  || 0;
+      const limitBytes = data.storage.limit  || data.storage.usage_limit || (25 * 1024 * 1024 * 1024);
+      const usedMB  = Math.round(usedBytes  / 1024 / 1024);
+      const limitMB = Math.round(limitBytes / 1024 / 1024);
+      const pct     = limitMB > 0 ? Math.round(usedMB / limitMB * 100) : 0;
+      const color   = pct > 80 ? 'var(--red)' : pct > 60 ? '#f59e0b' : 'var(--teal)';
       document.getElementById('storage-indicator').innerHTML =
-        `<span style="color:${color}">💾 ${usedMB}MB / ${limitMB}MB (${pct}%)</span>`;
-      if (pct > 80) showToast(`⚠️ Storage ${pct}% full — consider deleting old patients`);
+        `<span style="color:${color};font-size:10px">💾 ${usedMB}MB / ${limitMB}MB (${pct}%)</span>`;
+      if (pct > 80) showToast('⚠️ Storage ' + pct + '% full — delete old patients');
     }
-  } catch(e) {}
+  } catch(e) {
+    document.getElementById('storage-indicator').style.display = 'none';
+  }
 }
 
 async function pickContact() {
