@@ -10,6 +10,10 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>VPARC Referral Portal</title>
+<link rel="apple-touch-icon" href="https://ui-avatars.com/api/?name=V&size=180&background=00b4c8&color=fff&bold=true&rounded=false">
+<link rel="apple-touch-icon" sizes="152x152" href="https://ui-avatars.com/api/?name=V&size=152&background=00b4c8&color=fff&bold=true">
+<link rel="apple-touch-icon" sizes="167x167" href="https://ui-avatars.com/api/?name=V&size=167&background=00b4c8&color=fff&bold=true">
+<link rel="apple-touch-icon" sizes="180x180" href="https://ui-avatars.com/api/?name=V&size=180&background=00b4c8&color=fff&bold=true">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
@@ -37,6 +41,8 @@
   --shadow-lg: 0 8px 32px rgba(0,100,114,0.16);
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+body { -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
 html, body {
   height: 100%; font-family: 'Inter', sans-serif;
   background: var(--surface); color: var(--ink);
@@ -45,7 +51,7 @@ html, body {
 h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
 
 /* ═══ SCREENS ═══ */
-.screen { display: none; min-height: 100dvh; flex-direction: column; }
+.screen { display: none; min-height: 100vh; min-height: 100vh; min-height: 100dvh; flex-direction: column; }
 .screen.active { display: flex; }
 
 /* ═══ LANDING ═══ */
@@ -355,7 +361,7 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
 .modal-overlay.open { display: flex; }
 .modal {
   background: white; border-radius: 24px 24px 0 0; width: 100%; max-width: 540px;
-  padding: 28px 24px 40px; max-height: 90dvh; overflow-y: auto;
+  padding: 28px 24px 40px; max-height: 90vh; max-height: 90vh; overflow-y: auto;
   animation: slideUp .25s ease;
 }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
@@ -423,7 +429,7 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
   z-index: 300; align-items: center; justify-content: center; flex-direction: column;
 }
 .lightbox.open { display: flex; }
-.lightbox img, .lightbox video { max-width: 100%; max-height: 85dvh; border-radius: 8px; }
+.lightbox img, .lightbox video { max-width: 100%; max-height: 85vh; max-height: 85vh; border-radius: 8px; }
 .lightbox-close {
   position: absolute; top: 20px; right: 20px;
   background: rgba(255,255,255,0.1); border: none; color: white;
@@ -801,7 +807,7 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
 
 <!-- Add Manual Exercise Modal (Upgraded) -->
 <div class="modal-overlay" id="modal-add-exercise">
-  <div class="modal" style="max-height:88dvh;overflow-y:auto">
+  <div class="modal" style="max-height:88vh;overflow-y:auto">
     <div class="modal-handle"></div>
     <h3>✏️ Add Custom Exercise</h3>
     <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Type any exercise not in the library — your own protocol, technique or instruction.</p>
@@ -1275,7 +1281,7 @@ async function renderMediaTab(mode) {
     : `<div class="media-grid">${items.map(m => `
         <div class="media-thumb" onclick="openLightbox('${m.url}','${m.type}','${m.caption||''}')">
           ${m.type === 'video'
-            ? `<video src="${m.url}" muted playsinline></video><div class="video-badge">▶ VIDEO</div>`
+            ? `<video src="${m.url}" muted playsinline webkit-playsinline style="width:100%;height:100%;object-fit:cover"></video><div class="video-badge">▶ VIDEO</div>`
             : `<img src="${m.url}" alt="${m.caption||''}" loading="lazy">`}
         </div>`).join('')}</div>`;
 
@@ -1402,9 +1408,10 @@ async function compressVideo(file, onProgress) {
       canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d');
 
-      if (!window.MediaRecorder || !MediaRecorder.isTypeSupported('video/webm')) {
-        // Browser doesn't support — return original
-        resolve(file); return;
+      // iOS Safari doesn't support MediaRecorder for video/webm
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      if (isIOS || !window.MediaRecorder || !MediaRecorder.isTypeSupported('video/webm')) {
+        resolve(file); return; // return original on iOS
       }
 
       const stream = canvas.captureStream(24);
@@ -1900,7 +1907,11 @@ ${url}
 2. Tap "Doctor Portal"
 3. Enter your 4-digit PIN
 
-💡 *Tip:* Tap the menu → "Add to Home Screen" to install as an app on your phone.
+💡 *To install as an app:*
+• *iPhone:* Open in Safari → tap Share → "Add to Home Screen"
+• *Android:* Tap browser menu → "Add to Home Screen"
+
+🔔 *For notifications (iPhone):* Must be installed to Home Screen first, requires iOS 16.4+
 
 _VPARC — Varanasi Physiotherapy & Rehabilitation Centre_
 _Dr. Prashant Punj MPT (Ortho)_`;
@@ -1990,8 +2001,8 @@ function openLightbox(url, type, caption) {
   const box = document.getElementById('lightbox');
   const content = document.getElementById('lightbox-content');
   content.innerHTML = type === 'video'
-    ? `<video src="${url}" controls autoplay style="max-width:100%;max-height:80dvh;border-radius:8px"></video>`
-    : `<img src="${url}" alt="${caption}" style="max-width:100%;max-height:80dvh;border-radius:8px">`;
+    ? `<video src="${url}" controls autoplay playsinline webkit-playsinline style="max-width:100%;max-height:80vh;border-radius:8px" onerror="this.outerHTML='<p style=color:white;padding:20px>Video cannot play on this browser. <a href=${url} style=color:#00b4c8 target=_blank>Open directly</a></p>'"></video>`
+    : `<img src="${url}" alt="${caption}" style="max-width:100%;max-height:80vh;border-radius:8px">`;
   document.getElementById('lightbox-caption').textContent = caption;
   box.classList.add('open');
 }
@@ -2071,9 +2082,8 @@ const pwaManifest = {
     { src: 'https://ui-avatars.com/api/?name=V&size=512&background=00b4c8&color=fff&bold=true&rounded=true', sizes: '512x512', type: 'image/png' }
   ]
 };
-const manifestBlob = new Blob([JSON.stringify(pwaManifest)], {type:'application/json'});
-const manifestUrl = URL.createObjectURL(manifestBlob);
-document.getElementById('pwa-manifest').href = manifestUrl;
+const manifestDataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(pwaManifest));
+document.getElementById('pwa-manifest').href = manifestDataUri;
 
 // ── Service Worker ──────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
@@ -2105,9 +2115,9 @@ if ('serviceWorker' in navigator) {
       });
     });
   `;
-  const blob = new Blob([swContent], { type: 'application/javascript' });
-  const swUrl = URL.createObjectURL(blob);
-  navigator.serviceWorker.register(swUrl).then(reg => {
+  const swBlob = new Blob([swContent], { type: 'application/javascript' });
+  const swUrl = URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swUrl, {scope: '/'}).then(reg => {
     console.log('SW registered');
     // Request notification permission
     if ('Notification' in window && Notification.permission === 'default') {
@@ -2745,7 +2755,7 @@ const PROTOCOL_TEMPLATES = [
      MODAL: PROTOCOL PICKER
 ════════════════════════════════ -->
 <div class="modal-overlay" id="modal-protocol-picker">
-  <div class="modal" style="max-height:85dvh;overflow-y:auto">
+  <div class="modal" style="max-height:85vh;overflow-y:auto">
     <div class="modal-handle"></div>
     <h3>🗂️ Choose Protocol Template</h3>
     <p style="font-size:12px;color:var(--muted);margin-bottom:18px">International evidence-based protocols with phase timelines & exercise pre-loading</p>
@@ -2758,7 +2768,7 @@ const PROTOCOL_TEMPLATES = [
      MODAL: EXERCISE LIBRARY PICKER
 ════════════════════════════════ -->
 <div class="modal-overlay" id="modal-exercise-library">
-  <div class="modal" style="max-height:90dvh;padding:20px 16px 24px">
+  <div class="modal" style="max-height:90vh;padding:20px 16px 24px">
     <div class="modal-handle"></div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <div style="flex:1;position:relative">
@@ -2770,7 +2780,7 @@ const PROTOCOL_TEMPLATES = [
     </div>
     <div id="lib-cat-chips" style="display:flex;gap:7px;overflow-x:auto;padding-bottom:8px;margin-bottom:12px"></div>
     <div style="font-size:11px;color:var(--teal-dark);margin-bottom:8px" id="lib-target-phase-label"></div>
-    <div id="lib-exercise-list" style="max-height:55dvh;overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
+    <div id="lib-exercise-list" style="max-height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
   </div>
 </div>
 
