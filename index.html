@@ -1312,10 +1312,10 @@ async function handleFileUpload() {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-    fd.append('resource_type', type === 'video' ? 'video' : 'image');
+    fd.append('resource_type', 'auto');
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${type === 'video' ? 'video' : 'image'}/upload`);
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`);
     xhr.upload.onprogress = e => {
       if (e.lengthComputable) bar.style.width = (e.loaded / e.total * 100) + '%';
     };
@@ -1396,30 +1396,64 @@ async function renderSessionsTab(mode) {
   el.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
   const snap = await db.collection('sessions')
     .where('patientId', '==', currentPatientId).get();
-  const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
 
+  const isAdmin = mode === 'admin';
   const painColor = v => v <= 3 ? '#10b981' : v <= 6 ? '#f59e0b' : '#e8354a';
 
-  const html = sessions.length === 0
+  const sessHtml = sessions.length === 0
     ? '<div class="empty-state"><div class="empty-icon">📅</div><p>No sessions logged yet</p></div>'
     : sessions.map(s => `
-      <div class="session-item">
-        <div class="session-date">${s.date || '–'}</div>
+      <div class="session-item" id="sess-${s.id}">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div class="session-date">${s.date || '–'}</div>
+          ${isAdmin ? `<div style="display:flex;gap:6px">
+            <button onclick="editSession('${s.id}')" style="background:rgba(0,180,200,0.1);border:none;border-radius:7px;padding:4px 10px;font-size:11px;color:var(--teal-dark);cursor:pointer">✏️ Edit</button>
+            <button onclick="deleteSession('${s.id}')" style="background:rgba(232,53,74,0.08);border:none;border-radius:7px;padding:4px 10px;font-size:11px;color:var(--red);cursor:pointer">✕</button>
+          </div>` : ''}
+        </div>
         <div class="session-pain">
           <div class="pain-dot" style="background:${painColor(s.pain||0)}"></div>
           <span style="font-size:12px;color:var(--ink);font-weight:500">Pain: ${s.pain ?? '–'}/10</span>
           ${s.romJoint ? `<span style="font-size:11px;color:var(--muted)"> · ROM ${s.romJoint}: ${s.romAngle}</span>` : ''}
         </div>
         ${s.subjective ? `<div class="session-soap"><b style="color:var(--teal-dark)">S:</b> ${s.subjective}</div>` : ''}
-        ${s.objective ? `<div class="session-soap"><b style="color:var(--teal-dark)">O:</b> ${s.objective}</div>` : ''}
-        ${s.plan ? `<div class="session-soap"><b style="color:var(--teal-dark)">P:</b> ${s.plan}</div>` : ''}
+        ${s.objective  ? `<div class="session-soap"><b style="color:var(--teal-dark)">O:</b> ${s.objective}</div>` : ''}
+        ${s.plan       ? `<div class="session-soap"><b style="color:var(--teal-dark)">P:</b> ${s.plan}</div>` : ''}
       </div>`).join('');
 
   el.innerHTML = `<div style="padding:20px 16px 100px">
-    <button class="upload-btn" onclick="openModal('modal-add-session')" style="margin-bottom:20px">＋ Log Session</button>
-    ${html}
+    ${isAdmin ? `<button class="upload-btn" onclick="openModal('modal-add-session')" style="margin-bottom:20px">＋ Log Session</button>` : ''}
+    ${sessHtml}
   </div>`;
 }
+
+async function deleteSession(id) {
+  if (!confirm('Delete this session log?')) return;
+  await db.collection('sessions').doc(id).delete();
+  showToast('Session deleted');
+  renderSessionsTab('admin');
+}
+
+async function editSession(id) {
+  const snap = await db.collection('sessions').doc(id).get();
+  const s = snap.data();
+  // Pre-fill modal
+  document.getElementById('sess-date').value  = s.date  || '';
+  document.getElementById('sess-pain').value  = s.pain  ?? 5;
+  document.getElementById('sess-pain-val').textContent = s.pain ?? 5;
+  document.getElementById('sess-s').value     = s.subjective || '';
+  document.getElementById('sess-o').value     = s.objective  || '';
+  document.getElementById('sess-p').value     = s.plan       || '';
+  document.getElementById('sess-joint').value = s.romJoint   || '';
+  document.getElementById('sess-angle').value = s.romAngle   || '';
+  // Store editing ID
+  window._editingSessionId = id;
+  document.querySelector('#modal-add-session h3').textContent = '✏️ Edit Session';
+  openModal('modal-add-session');
+}
+
 
 // ════════════════════════════════════════════════════════
 //  PROGRESS CHARTS
@@ -1615,22 +1649,29 @@ async function addPatient() {
 }
 
 async function addSession() {
-  const date   = document.getElementById('sess-date').value;
-  const pain   = parseInt(document.getElementById('sess-pain').value);
-  const s      = document.getElementById('sess-s').value.trim();
-  const o      = document.getElementById('sess-o').value.trim();
-  const p      = document.getElementById('sess-p').value.trim();
-  const joint  = document.getElementById('sess-joint').value.trim();
-  const angle  = document.getElementById('sess-angle').value.trim();
+  const date  = document.getElementById('sess-date').value;
+  const pain  = parseInt(document.getElementById('sess-pain').value);
+  const s     = document.getElementById('sess-s').value.trim();
+  const o     = document.getElementById('sess-o').value.trim();
+  const p     = document.getElementById('sess-p').value.trim();
+  const joint = document.getElementById('sess-joint').value.trim();
+  const angle = document.getElementById('sess-angle').value.trim();
   if (!date) { showToast('Select a date'); return; }
-  await db.collection('sessions').add({
-    patientId: currentPatientId, date, pain, subjective: s, objective: o, plan: p,
-    romJoint: joint, romAngle: angle,
-    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-  });
-  await sendNotification('Session logged', `${currentPatientData.name} — pain ${pain}/10`, '📅');
+
+  const data = { patientId: currentPatientId, date, pain, subjective: s, objective: o, plan: p, romJoint: joint, romAngle: angle };
+
+  if (window._editingSessionId) {
+    await db.collection('sessions').doc(window._editingSessionId).update(data);
+    window._editingSessionId = null;
+    document.querySelector('#modal-add-session h3').textContent = 'Log Session';
+    showToast('Session updated ✓');
+  } else {
+    data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+    await db.collection('sessions').add(data);
+    await sendNotification('Session logged', `${currentPatientData.name} — pain ${pain}/10`, '📅');
+    showToast('Session saved ✓');
+  }
   closeModal('modal-add-session');
-  showToast('Session saved ✓');
   renderSessionsTab('admin');
 }
 
