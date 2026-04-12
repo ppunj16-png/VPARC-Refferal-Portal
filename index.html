@@ -579,6 +579,7 @@ h1,h2,h3,h4,.heading { font-family: 'Inter', sans-serif; }
       🔔<span class="notif-badge" id="admin-notif-count" style="display:none">0</span>
     </button>
     <button class="topbar-action" onclick="sharePortalWhatsApp()" title="Share portal with doctor" style="background:rgba(37,211,102,0.15);color:#25D366">🟢</button>
+    <div id="storage-indicator" style="font-size:10px;color:var(--teal);display:none"></div>
     <button class="topbar-action" onclick="adminLogout()" style="background:rgba(232,53,74,0.1);color:var(--red)">↩</button>
   </div>
   <div class="page-content">
@@ -1037,6 +1038,10 @@ function doctorLogout() {
 //  ADMIN DASHBOARD
 // ════════════════════════════════════════════════════════
 async function loadAdminDashboard() {
+  setTimeout(() => {
+    checkCloudinarySpace();
+    document.getElementById('storage-indicator').style.display = 'flex';
+  }, 2000);
   if (patientUnsubscribe) patientUnsubscribe();
   patientUnsubscribe = db.collection('patients').orderBy('createdAt', 'desc')
     .onSnapshot(snap => {
@@ -1725,29 +1730,67 @@ function openAddPatient() { openModal('modal-add-patient'); }
 
 
 async function deletePatient(patientId, patientName) {
-  if (!confirm(`Delete ${patientName} and ALL their data?\n\nThis will permanently delete:\n• All sessions\n• All media (photos/videos)\n• Rehab plan\n• Comments\n• Notifications\n\nThis cannot be undone.`)) return;
+  if (!confirm(`Delete ${patientName} and ALL their data?\n\nThis will permanently delete:\n• All sessions\n• All photos & videos (from Cloudinary)\n• Rehab plan\n• Comments\n• Notifications\n\nThis cannot be undone.`)) return;
 
-  showToast('Deleting patient data...');
+  showToast('Deleting...');
 
   try {
-    // Delete all subcollections
-    const collections = ['sessions','media','rehabPlans','rehabMeta','comments','notifications'];
+    // 1. Get all media public_ids for Cloudinary deletion
+    const mediaSnap = await db.collection('media').where('patientId','==',patientId).get();
+    const imageIds = mediaSnap.docs.filter(d => d.data().type === 'image' && d.data().publicId).map(d => d.data().publicId);
+    const videoIds = mediaSnap.docs.filter(d => d.data().type === 'video' && d.data().publicId).map(d => d.data().publicId);
+
+    // 2. Delete from Cloudinary via serverless function
+    if (imageIds.length > 0) {
+      await fetch('/.netlify/functions/delete-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ publicIds: imageIds, resourceType: 'image' })
+      }).catch(e => console.warn('Cloudinary image delete:', e));
+    }
+    if (videoIds.length > 0) {
+      await fetch('/.netlify/functions/delete-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ publicIds: videoIds, resourceType: 'video' })
+      }).catch(e => console.warn('Cloudinary video delete:', e));
+    }
+
+    // 3. Delete all Firestore subcollections
+    const collections = ['sessions','media','rehabPlans','comments','notifications'];
     for (const col of collections) {
       const snap = await db.collection(col).where('patientId','==',patientId).get();
-      const batch = db.batch();
-      snap.docs.forEach(d => batch.delete(d.ref));
-      if (snap.docs.length > 0) await batch.commit();
+      if (snap.docs.length > 0) {
+        const batch = db.batch();
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
     }
-    // Delete rehabMeta doc directly
     await db.collection('rehabMeta').doc(patientId).delete().catch(()=>{});
-    // Delete patient doc
     await db.collection('patients').doc(patientId).delete();
 
-    showToast(`${patientName} deleted`);
+    showToast(`${patientName} deleted — all data & media cleared`);
     showScreen('screen-admin-dashboard');
   } catch(e) {
     showToast('Error: ' + e.message);
   }
+}
+
+// ── Space monitoring ─────────────────────────────────────────────
+async function checkCloudinarySpace() {
+  try {
+    const res  = await fetch('/.netlify/functions/cloudinary-usage');
+    const data = await res.json();
+    if (data.storage) {
+      const usedMB  = Math.round(data.storage.usage / 1024 / 1024);
+      const limitMB = Math.round(data.storage.limit  / 1024 / 1024);
+      const pct     = Math.round(usedMB / limitMB * 100);
+      const color   = pct > 80 ? 'var(--red)' : pct > 60 ? '#f59e0b' : 'var(--green)';
+      document.getElementById('storage-indicator').innerHTML =
+        `<span style="color:${color}">💾 ${usedMB}MB / ${limitMB}MB (${pct}%)</span>`;
+      if (pct > 80) showToast(`⚠️ Storage ${pct}% full — consider deleting old patients`);
+    }
+  } catch(e) {}
 }
 
 async function pickContact() {
