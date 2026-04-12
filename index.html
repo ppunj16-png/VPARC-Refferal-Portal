@@ -1835,7 +1835,7 @@ async function renderCommentsTab(mode) {
     .sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
 
   const isAdmin = mode === 'admin';
-  const myLabel  = isAdmin ? 'Prashant Punj (VPARC)' : (currentDoctorData?.doctorName || 'Dr. Pandey');
+  const myLabel  = isAdmin ? 'Prashant Punj (VPARC)' : (currentDoctorData?.doctorName || 'Doctor');
   const myRole   = isAdmin ? 'admin' : 'doctor';
   const theirRole = isAdmin ? 'doctor' : 'admin';
 
@@ -1846,7 +1846,7 @@ async function renderCommentsTab(mode) {
   const renderComment = (c, readOnly) => `
     <div class="comment-item" style="${readOnly ? 'border-left:3px solid var(--teal);' : ''}">
       <div class="comment-header">
-        <span class="comment-author" style="color:${readOnly ? 'var(--teal-dark)' : 'var(--ink)'}">${c.author || 'Dr.'}</span>
+        <span class="comment-author" style="color:${readOnly ? 'var(--teal-dark)' : 'var(--ink)'}">${c.author || 'Unknown'}</span>
         <span class="comment-date">${c.createdAt ? fmtDate(c.createdAt.toDate()) : '–'}</span>
       </div>
       <div class="comment-text">${c.text}</div>
@@ -1855,11 +1855,11 @@ async function renderCommentsTab(mode) {
 
   const theirSection = theirComments.length > 0 ? `
     <div class="section-card" style="margin-bottom:14px">
-      <h4>${isAdmin ? 'FROM DR. PANDEY' : 'FROM VPARC PHYSIO'}</h4>
+      <h4>${isAdmin ? ('FROM ' + (currentDoctorData?.doctorName || 'DOCTOR').toUpperCase()) : 'FROM VPARC PHYSIO'}</h4>
       ${theirComments.map(c => renderComment(c, true)).join('')}
     </div>` : `
     <div class="section-card" style="margin-bottom:14px">
-      <h4>${isAdmin ? 'FROM DR. PANDEY' : 'FROM VPARC PHYSIO'}</h4>
+      <h4>${isAdmin ? ('FROM ' + (currentDoctorData?.doctorName || 'DOCTOR').toUpperCase()) : 'FROM VPARC PHYSIO'}</h4>
       <div class="empty-state" style="padding:20px"><div class="empty-icon" style="font-size:28px">💬</div><p>No notes yet</p></div>
     </div>`;
 
