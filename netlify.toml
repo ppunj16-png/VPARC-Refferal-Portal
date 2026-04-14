@@ -6,6 +6,16 @@
   SECRETS_SCAN_OMIT_PATHS = "index.html"
 
 [[headers]]
+  for = "/"
+  [headers.values]
+    Content-Type = "text/html; charset=UTF-8"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Content-Type = "text/html; charset=UTF-8"
+
+[[headers]]
   for = "/*"
   [headers.values]
     X-Frame-Options = "DENY"
